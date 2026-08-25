@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>URL Forensics — Phishing Link Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0d1117;
+    --bg-panel: #12171f;
+    --bg-raised: #171d27;
+    --line: #263140;
+    --line-soft: #1b222c;
+    --text: #e7e9ec;
+    --text-dim: #8a94a3;
+    --text-faint: #545e6c;
+    --safe: #3ecf9b;
+    --safe-dim: #1f4a3c;
+    --warn: #f0b429;
+    --warn-dim: #4a3c14;
+    --danger: #ff5c5c;
+    --danger-dim: #4a1f22;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(62,207,155,0.06), transparent),
+      radial-gradient(ellipse 700px 500px at 90% 10%, rgba(240,180,41,0.05), transparent),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    padding:56px 20px 80px;
+  }
+  .wrap{ max-width:760px; margin:0 auto; }
+
+  /* Header */
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.18em;
+    color:var(--text-faint);
+    text-transform:uppercase;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .eyebrow::before{
+    content:"";
+    width:7px; height:7px; border-radius:50%;
+    background:var(--safe);
+    box-shadow:0 0 8px var(--safe);
+    animation:blink 2.4s ease-in-out infinite;
+  }
+  @keyframes blink{ 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  h1{
+    font-family:var(--sans);
+    font-weight:800;
+    font-size:clamp(30px,5vw,44px);
+    letter-spacing:-0.02em;
+    line-height:1.08;
+    margin-bottom:14px;
+  }
+  h1 span{ color:var(--text-dim); font-weight:600; }
+  .sub{
+    color:var(--text-dim);
+    font-size:15.5px;
+    line-height:1.6;
+    max-width:56ch;
+    margin-bottom:40px;
+  }
+
+  /* Input console */
+  .console{
+    background:var(--bg-panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+    margin-bottom:28px;
+  }
+  .console-bar{
+    display:flex; align-items:center; gap:8px;
+    padding:11px 14px;
+    border-bottom:1px solid var(--line-soft);
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text-faint);
+    letter-spacing:0.05em;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--line); }
+  .console-bar .label{ margin-left:4px; text-transform:uppercase; }
+
+  .console-body{
+    display:flex;
+    align-items:center;
+    padding:6px 6px 6px 18px;
+    gap:10px;
+  }
+  .prompt-glyph{
+    font-family:var(--mono);
+    color:var(--safe);
+    font-size:15px;
+    flex-shrink:0;
+  }
+  #urlInput{
+    flex:1;
+    background:transparent;
+    border:none;
+    outline:none;
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:15px;
+    padding:14px 4px;
+    min-width:0;
+  }
+  #urlInput::placeholder{ color:var(--text-faint); }
+
+  .scan-btn{
+    flex-shrink:0;
+    background:var(--safe);
+    color:#04140d;
+    border:none;
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:13px;
+    letter-spacing:0.03em;
+    padding:12px 20px;
+    margin:6px;
+    border-radius:6px;
+    cursor:pointer;
+    transition:transform 0.12s ease, background 0.12s ease;
+  }
+  .scan-btn:hover{ background:#4fe0ac; }
+  .scan-btn:active{ transform:scale(0.97); }
+  .scan-btn:disabled{ opacity:0.5; cursor:default; }
+
+  .hint{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--text-faint);
+    margin:-14px 0 36px 2px;
+  }
+
+  /* Report */
+  #report{ display:none; }
+  #report.show{ display:block; animation:fadeUp 0.35s ease; }
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+
+  .verdict{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:26px 26px 24px;
+    margin-bottom:22px;
+    display:flex;
+    align-items:center;
+    gap:22px;
+    background:var(--bg-panel);
+  }
+  .verdict.safe{ border-color:var(--safe-dim); }
+  .verdict.warn{ border-color:var(--warn-dim); }
+  .verdict.danger{ border-color:var(--danger-dim); }
+
+  .gauge{ position:relative; width:96px; height:96px; flex-shrink:0; }
+  .gauge svg{ transform:rotate(-90deg); }
+  .gauge-track{ fill:none; stroke:var(--line-soft); stroke-width:8; }
+  .gauge-fill{ fill:none; stroke-width:8; stroke-linecap:round; transition:stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1); }
+  .gauge-num{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family:var(--mono);
+  }
+  .gauge-num .n{ font-size:22px; font-weight:700; line-height:1; }
+  .gauge-num .lbl{ font-size:9px; color:var(--text-faint); letter-spacing:0.1em; margin-top:3px; }
+
+  .verdict-text .tag{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    margin-bottom:6px;
+  }
+  .verdict-text .title{
+    font-size:22px;
+    font-weight:800;
+    letter-spacing:-0.01em;
+  }
+  .verdict.safe .title{ color:var(--safe); }
+  .verdict.warn .title{ color:var(--warn); }
+  .verdict.danger .title{ color:var(--danger); }
+  .verdict-text .desc{ color:var(--text-dim); font-size:13.5px; margin-top:6px; line-height:1.5; }
+
+  .log-panel{
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:var(--bg-panel);
+    overflow:hidden;
+  }
+  .log-head{
+    padding:14px 20px;
+    border-bottom:1px solid var(--line-soft);
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+  }
+  .log-list{ padding:6px 0; }
+  .log-row{
+    display:flex;
+    align-items:flex-start;
+    gap:12px;
+    padding:12px 20px;
+    border-bottom:1px solid var(--line-soft);
+    opacity:0;
+    transform:translateX(-6px);
+    animation:rowIn 0.32s ease forwards;
+  }
+  .log-row:last-child{ border-bottom:none; }
+  .log-icon{
+    font-family:var(--mono);
+    font-size:14px;
+    width:18px; text-align:center; flex-shrink:0;
+    margin-top:1px;
+  }
+  .log-row.pass .log-icon{ color:var(--safe); }
+  .log-row.flag .log-icon{ color:var(--danger); }
+  .log-row.info .log-icon{ color:var(--text-faint); }
+
+  .log-body .check-name{
+    font-family:var(--mono);
+    font-size:13.5px;
+    color:var(--text);
+    font-weight:500;
+  }
+  .log-row.pass .check-name{ color:var(--text-dim); }
+  .log-body .check-detail{
+    font-size:12.5px;
+    color:var(--text-faint);
+    margin-top:3px;
+    line-height:1.5;
+  }
+  .weight{
+    margin-left:auto;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-faint);
+    flex-shrink:0;
+    padding-top:1px;
+  }
+  .log-row.flag .weight{ color:var(--danger); }
+
+  @keyframes rowIn{ to{ opacity:1; transform:translateX(0); } }
+
+  .footnote{
+    margin-top:22px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text-faint);
+    line-height:1.6;
+    border-left:2px solid var(--line);
+    padding-left:14px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .eyebrow::before{ animation:none; }
+    .log-row{ animation:none; opacity:1; transform:none; }
+    #report.show{ animation:none; }
+  }
+
+  @media (max-width:520px){
+    .console-body{ flex-wrap:wrap; }
+    .scan-btn{ width:100%; margin:6px 6px 10px; }
+    .verdict{ flex-direction:column; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Live heuristic scan · client-side only</div>
+  <h1>URL Forensics<br><span>phishing link scanner</span></h1>
+  <p class="sub">Paste a link below. Nine heuristic checks run against its structure — no external lookups, nothing leaves this browser tab.</p>
+
+  <div class="console">
+    <div class="console-bar">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span class="label">scan target</span>
+    </div>
+    <div class="console-body">
+      <span class="prompt-glyph">❯</span>
+      <input id="urlInput" type="text" placeholder="https://example.com/login" autocomplete="off" spellcheck="false">
+      <button class="scan-btn" id="scanBtn">Check URL</button>
+    </div>
+  </div>
+  <div class="hint">Press Enter to run the scan</div>
+
+  <div id="report">
+    <div class="verdict" id="verdictBox">
+      <div class="gauge">
+        <svg width="96" height="96" viewBox="0 0 96 96">
+          <circle class="gauge-track" cx="48" cy="48" r="40"></circle>
+          <circle class="gauge-fill" id="gaugeFill" cx="48" cy="48" r="40"
+            stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+        </svg>
+        <div class="gauge-num">
+          <div class="n" id="scoreNum">0</div>
+          <div class="lbl">RISK/100</div>
+        </div>
+      </div>
+      <div class="verdict-text">
+        <div class="tag" id="verdictTag">RESULT</div>
+        <div class="title" id="verdictTitle">—</div>
+        <div class="desc" id="verdictDesc"></div>
+      </div>
+    </div>
+
+    <div class="log-panel">
+      <div class="log-head">Scan log</div>
+      <div class="log-list" id="logList"></div>
+    </div>
+
+    <div class="footnote">
+      Heuristic scoring only — this tool checks a URL's structure, not its live content or reputation.
+      A low score does not guarantee safety, and a high score does not guarantee malice. Always verify
+      unfamiliar links before entering credentials.
+    </div>
+  </div>
+
+</div>
+
+<script>
+const input = document.getElementById('urlInput');
+const scanBtn = document.getElementById('scanBtn');
+const report = document.getElementById('report');
+const logList = document.getElementById('logList');
+const gaugeFill = document.getElementById('gaugeFill');
+const scoreNum = document.getElementById('scoreNum');
+const verdictBox = document.getElementById('verdictBox');
+const verdictTag = document.getElementById('verdictTag');
+const verdictTitle = document.getElementById('verdictTitle');
+const verdictDesc = document.getElementById('verdictDesc');
+
+const SUSPICIOUS_WORDS = ['login','verify','account','password','secure','update','confirm','banking','signin','wallet','unlock','suspend'];
+const SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','ow.ly','is.gd','buff.ly','shorturl.at','rebrand.ly'];
+
+function isIPAddress(host){
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || /^[0-9a-fA-F:]+$/.test(host) && host.includes(':');
+}
+
+function analyze(raw){
+  let checks = [];
+  let score = 0;
+  let url, parsed = null;
+
+  url = raw.trim();
+  if(!/^[a-zA-Z]+:\/\//.test(url)) url = 'http://' + url;
+
+  try{
+    parsed = new URL(url);
+  }catch(e){
+    return { error:true };
+  }
+
+  const host = parsed.hostname;
+  const full = raw.trim();
+
+  // 1. HTTPS
+  if(parsed.protocol === 'https:'){
+    checks.push({ok:true, name:'Connection uses HTTPS', detail:'Traffic to this host would be encrypted.', weight:0});
+  } else {
+    checks.push({ok:false, name:'Not using HTTPS', detail:'Site is served over plain HTTP — credentials or data would be sent unencrypted.', weight:20});
+    score += 20;
+  }
+
+  // 2. @ symbol
+  if(full.includes('@')){
+    checks.push({ok:false, name:'Contains "@" symbol', detail:'Browsers ignore everything before "@" — often used to disguise the real destination.', weight:25});
+    score += 25;
+  } else {
+    checks.push({ok:true, name:'No "@" symbol trickery', detail:'', weight:0});
+  }
+
+  // 3. IP address as host
+  if(isIPAddress(host)){
+    checks.push({ok:false, name:'Domain is a raw IP address', detail:'Legitimate sites almost always use a named domain, not a bare IP.', weight:25});
+    score += 25;
+  } else {
+    checks.push({ok:true, name:'Uses a named domain', detail:'', weight:0});
+  }
+
+  // 4. Length
+  if(full.length > 90){
+    checks.push({ok:false, name:'Unusually long URL', detail:`${full.length} characters — long URLs are often used to hide the real domain or pad with junk parameters.`, weight:12});
+    score += 12;
+  } else {
+    checks.push({ok:true, name:'URL length looks normal', detail:`${full.length} characters.`, weight:0});
+  }
+
+  // 5. Suspicious keywords
+  const lower = full.toLowerCase();
+  const foundWords = SUSPICIOUS_WORDS.filter(w => lower.includes(w));
+  if(foundWords.length){
+    checks.push({ok:false, name:'Contains sensitive keywords', detail:`Found: ${foundWords.join(', ')} — common bait words in credential-phishing links.`, weight:10 * Math.min(foundWords.length,2)});
+    score += 10 * Math.min(foundWords.length,2);
+  } else {
+    checks.push({ok:true, name:'No bait keywords detected', detail:'', weight:0});
+  }
+
+  // 6. Subdomain count
+  const hostParts = host.split('.').filter(Boolean);
+  const subCount = Math.max(0, hostParts.length - 2);
+  if(subCount >= 3){
+    checks.push({ok:false, name:'Excessive subdomains', detail:`${subCount} subdomain levels (${host}) — a common trick to bury a fake brand name in the middle of the address.`, weight:15});
+    score += 15;
+  } else {
+    checks.push({ok:true, name:'Subdomain depth is normal', detail:'', weight:0});
+  }
+
+  // 7. Hyphens in domain
+  const hyphenCount = (hostParts[0] || '').split('-').length - 1;
+  if(hyphenCount >= 2){
+    checks.push({ok:false, name:'Multiple hyphens in domain', detail:`"${hostParts[0]}" — often used to imitate a real brand name (e.g. secure-paypal-login).`, weight:10});
+    score += 10;
+  } else {
+    checks.push({ok:true, name:'Domain naming looks normal', detail:'', weight:0});
+  }
+
+  // 8. Punycode / IDN homograph
+  if(host.includes('xn--')){
+    checks.push({ok:false, name:'Punycode-encoded domain', detail:'Domain uses internationalized characters — a known technique for lookalike homograph attacks.', weight:20});
+    score += 20;
+  } else {
+    checks.push({ok:true, name:'No punycode encoding', detail:'', weight:0});
+  }
+
+  // 9. URL shortener
+  if(SHORTENERS.some(s => host.includes(s))){
+    checks.push({ok:false, name:'Known URL shortener', detail:'Shortened links hide the real destination until you click.', weight:15});
+    score += 15;
+  } else {
+    checks.push({ok:true, name:'Not a known shortener', detail:'', weight:0});
+  }
+
+  score = Math.min(100, score);
+  return { error:false, score, checks, host };
+}
+
+function render(result){
+  logList.innerHTML = '';
+  report.classList.remove('show');
+
+  if(result.error){
+    verdictBox.className = 'verdict warn';
+    verdictTag.textContent = 'INPUT ERROR';
+    verdictTitle.textContent = 'Could not parse that as a URL';
+    verdictDesc.textContent = 'Check the format and try again — e.g. https://example.com/login';
+    scoreNum.textContent = '—';
+    gaugeFill.style.stroke = 'var(--warn)';
+    gaugeFill.style.strokeDashoffset = 251.2;
+    report.classList.add('show');
+    return;
+  }
+
+  const { score, checks } = result;
+
+  let level, color, title, desc;
+  if(score >= 55){
+    level = 'danger'; color = 'var(--danger)';
+    title = 'Potential Phishing';
+    desc = 'Multiple high-risk signals detected. Avoid entering credentials or personal data on this page.';
+  } else if(score >= 25){
+    level = 'warn'; color = 'var(--warn)';
+    title = 'Use Caution';
+    desc = 'Some suspicious traits found. Worth a second look before trusting this link.';
+  } else {
+    level = 'safe'; color = 'var(--safe)';
+    title = 'Likely Safe';
+    desc = 'No major red flags found in the URL structure.';
+  }
+
+  verdictBox.className = 'verdict ' + level;
+  verdictTag.textContent = 'RESULT';
+  verdictTitle.textContent = title;
+  verdictDesc.textContent = desc;
+  scoreNum.textContent = score;
+
+  const circumference = 251.2;
+  const offset = circumference - (score/100)*circumference;
+  gaugeFill.style.stroke = color;
+  requestAnimationFrame(() => { gaugeFill.style.strokeDashoffset = offset; });
+
+  checks.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'log-row ' + (c.ok ? 'pass' : 'flag');
+    row.style.animationDelay = (i * 55) + 'ms';
+    row.innerHTML = `
+      <div class="log-icon">${c.ok ? '✓' : '✕'}</div>
+      <div class="log-body">
+        <div class="check-name">${c.name}</div>
+        ${c.detail ? `<div class="check-detail">${c.detail}</div>` : ''}
+      </div>
+      ${!c.ok ? `<div class="weight">+${c.weight}</div>` : ''}
+    `;
+    logList.appendChild(row);
+  });
+
+  report.classList.add('show');
+}
+
+function runScan(){
+  const val = input.value.trim();
+  if(!val) return;
+  const result = analyze(val);
+  render(result);
+}
+
+scanBtn.addEventListener('click', runScan);
+input.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') runScan();
+});
+</script>
+</body>
+</html>
