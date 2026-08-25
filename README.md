@@ -1,6 +1,7 @@
 # Phishing URL Detector
 
 **Live Demo:** https://palrushideepthisree.github.io/phishing-url-detector
+
 **LinkedIn:** https://www.linkedin.com/in/deepthisreepalrushi
 
 A simple web-based cybersecurity tool designed using **HTML, CSS, and JavaScript** to analyze URLs and identify potentially suspicious or phishing links.
